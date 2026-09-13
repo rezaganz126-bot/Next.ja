@@ -1,0 +1,520 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Search, Download, PlayCircle, Heart, MessageCircle, 
+  Share2, Eye, ChevronDown, CheckCircle, AlertCircle, 
+  Settings, X, Loader2, Info
+} from 'lucide-react';
+
+// --- TYPESCRIPT INTERFACES ---
+interface TikTokAuthor {
+  unique_id: string;
+  nickname: string;
+  avatar?: string;
+}
+
+interface TikTokVideo {
+  video_id: string;
+  title: string;
+  play: string; // Direct video URL
+  cover: string; // Thumbnail
+  author: TikTokAuthor;
+  play_count: number;
+  digg_count: number; // Likes
+  comment_count: number;
+  share_count: number;
+}
+
+interface APIResponse {
+  code?: number;
+  msg?: string;
+  data?: {
+    videos?: TikTokVideo[];
+    hasMore?: boolean;
+    cursor?: number;
+  };
+}
+
+// Helper to format large numbers (e.g., 1.2M, 250K)
+const formatNumber = (num: number): string => {
+  if (!num) return '0';
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toString();
+};
+
+// Mock data generator for preview without an API key
+const generateMockVideos = (query: string): TikTokVideo[] => {
+  return Array.from({ length: 6 }).map((_, i) => ({
+    video_id: `mock_${i}_${Date.now()}`,
+    title: `Amazing TikTok compilation related to "${query}"! 🔥 #trending #fyp`,
+    play: 'https://www.w3schools.com/html/mov_bbb.mp4', // Safe fallback video for demo
+    cover: `https://picsum.photos/seed/${query}${i}/400/600`, // Placeholder thumbnail
+    author: {
+      unique_id: `user${Math.floor(Math.random() * 10000)}`,
+      nickname: `TikTok Creator ${i + 1}`,
+    },
+    play_count: Math.floor(Math.random() * 5000000) + 10000,
+    digg_count: Math.floor(Math.random() * 500000) + 1000,
+    comment_count: Math.floor(Math.random() * 5000) + 100,
+    share_count: Math.floor(Math.random() * 10000) + 50,
+  }));
+};
+
+const Header = () => (
+  <header className="sticky top-0 z-50 w-full backdrop-blur-md bg-slate-950/80 border-b border-slate-800">
+    <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div className="flex items-center gap-2 text-blue-500">
+        <PlayCircle size={28} className="text-blue-500" />
+        <span className="text-xl font-bold text-white tracking-tight">TikSave</span>
+      </div>
+      <nav className="hidden md:flex gap-6 text-sm font-medium text-slate-300">
+        <a href="#" className="hover:text-white transition-colors">Home</a>
+        <a href="#how-it-works" className="hover:text-white transition-colors">How It Works</a>
+        <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
+      </nav>
+      {/* Mobile menu placeholder */}
+      <div className="md:hidden text-slate-300">
+        <Settings size={24} />
+      </div>
+    </div>
+  </header>
+);
+
+const Footer = () => (
+  <footer className="bg-slate-950 border-t border-slate-800 py-12 mt-24">
+    <div className="max-w-6xl mx-auto px-4 text-center flex flex-col items-center">
+      <div className="flex items-center gap-2 text-blue-500 mb-4">
+        <PlayCircle size={24} />
+        <span className="text-lg font-bold text-white">TikSave</span>
+      </div>
+      <p className="text-slate-400 mb-4 text-sm max-w-md">
+        Fast and simple TikTok video downloader. Download your favorite content easily.
+      </p>
+      <p className="text-slate-500 text-xs mb-6 max-w-xl">
+        <strong>Disclaimer:</strong> TikSave is an independent third-party service and is not affiliated with TikTok. 
+        Users are responsible for respecting copyright and applicable laws when downloading content. Do not download copyrighted materials without permission.
+      </p>
+      <div className="text-slate-600 text-sm">
+        © 2026 TikSave. All rights reserved.
+      </div>
+    </div>
+  </footer>
+);
+
+const FAQItem = ({ question, answer }: { question: string, answer: string }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div className="border border-slate-800 rounded-xl overflow-hidden mb-3 bg-slate-900/50">
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-6 py-4 flex items-center justify-between text-left focus:outline-none"
+      >
+        <span className="font-medium text-slate-200">{question}</span>
+        <ChevronDown 
+          size={20} 
+          className={`text-slate-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} 
+        />
+      </button>
+      <div 
+        className={`px-6 overflow-hidden transition-all duration-300 ease-in-out ${
+          isOpen ? 'max-h-48 py-4 border-t border-slate-800' : 'max-h-0 py-0'
+        }`}
+      >
+        <p className="text-slate-400 text-sm">{answer}</p>
+      </div>
+    </div>
+  );
+};
+
+const VideoCard = ({ video }: { video: TikTokVideo }) => {
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = () => {
+    if (!video.play) {
+      alert("Download link is unavailable for this video.");
+      return;
+    }
+    
+    setDownloading(true);
+    // Simulate download delay for UX
+    setTimeout(() => {
+      // In a real scenario, you'd trigger a blob download or open the link.
+      // Since 'play' is a direct URL, opening it in a new tab is the simplest fallback if CORS prevents blob download.
+      window.open(video.play, '_blank');
+      setDownloading(false);
+    }, 800);
+  };
+
+  return (
+    <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 flex flex-col group hover:border-slate-700 transition-all duration-300 shadow-lg shadow-black/50">
+      {/* Thumbnail Container */}
+      <div className="relative aspect-[9/16] bg-slate-800 overflow-hidden">
+        <img 
+          src={video.cover} 
+          alt={video.title}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+          loading="lazy"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-80"></div>
+        
+        {/* Play Icon Overlay */}
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <div className="bg-white/20 backdrop-blur-sm p-3 rounded-full">
+             <PlayCircle size={40} className="text-white drop-shadow-lg" fill="currentColor" />
+          </div>
+        </div>
+
+        {/* Stats overlay */}
+        <div className="absolute bottom-3 left-3 right-3 flex justify-between text-white text-xs font-medium drop-shadow-md">
+          <div className="flex items-center gap-1"><Eye size={14}/> {formatNumber(video.play_count)}</div>
+          <div className="flex gap-3">
+            <span className="flex items-center gap-1"><Heart size={14}/> {formatNumber(video.digg_count)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="p-4 flex flex-col flex-grow">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 overflow-hidden">
+            {video.author.nickname.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-slate-200 font-semibold text-sm truncate">@{video.author.unique_id}</h3>
+            <p className="text-slate-400 text-xs truncate">{video.author.nickname}</p>
+          </div>
+        </div>
+        
+        <p className="text-slate-300 text-sm line-clamp-2 mb-4 flex-grow">
+          {video.title || 'No description provided.'}
+        </p>
+
+        <button 
+          onClick={handleDownload}
+          disabled={downloading}
+          className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:bg-slate-700 disabled:text-slate-400"
+        >
+          {downloading ? (
+            <><Loader2 size={18} className="animate-spin" /> Preparing...</>
+          ) : (
+             <><Download size={18} /> Download Video</>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default function App() {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<TikTokVideo[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  // Dev Settings State (For previewing with real API if desired)
+  const [showSettings, setShowSettings] = useState(false);
+  const [devApiKey, setDevApiKey] = useState('');
+
+  /* 
+   * =====================================================================
+   * ⚠️ NEXT.JS API ROUTE SIMULATION ⚠️
+   * In a real Next.js app, move everything inside this function to:
+   * app/api/tiktok/route.ts
+   * =====================================================================
+   */
+  const fetchTikTokData_ServerSideLogic = async (searchQuery: string, apiKeyOverride?: string) => {
+    // In Next.js, this would be process.env.RAPIDAPI_KEY
+    const apiKey = apiKeyOverride || ''; 
+    const host = 'tiktok-download-video1.p.rapidapi.com';
+    const baseUrl = `https://${host}`;
+
+    // Validations (would happen on server)
+    if (!searchQuery.trim()) {
+      throw new Error("Please enter a TikTok keyword or URL.");
+    }
+
+    // Mock response mode if no API key is provided
+    if (!apiKey) {
+      console.log("No API key provided. Returning mock data.");
+      return new Promise<TikTokVideo[]>((resolve) => {
+        setTimeout(() => resolve(generateMockVideos(searchQuery)), 1500);
+      });
+    }
+
+    // Real fetch logic (Server side)
+    const url = `${baseUrl}/feedSearch?keywords=${encodeURIComponent(searchQuery)}&count=10&cursor=0&region=US`;
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'x-rapidapi-host': host,
+          'x-rapidapi-key': apiKey,
+        }
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        throw new Error("API Key is invalid or expired.");
+      }
+      if (response.status === 429) {
+        throw new Error("Rate limit exceeded. Please try again later.");
+      }
+      if (!response.ok) {
+        throw new Error("Unable to fetch TikTok videos. Please try again.");
+      }
+
+      const json: APIResponse = await response.json();
+
+      // Normalize response (as per requirement 26)
+      let videosData: TikTokVideo[] = [];
+      
+      if (json.data && Array.isArray(json.data.videos)) {
+        videosData = json.data.videos;
+      } else if (Array.isArray((json as any).videos)) {
+        videosData = (json as any).videos;
+      } else if (Array.isArray((json as any).data)) {
+        videosData = (json as any).data;
+      } else {
+         throw new Error("Unexpected API response structure.");
+      }
+
+      if (videosData.length === 0) {
+        throw new Error("No videos found.");
+      }
+
+      return videosData;
+
+    } catch (err: any) {
+      // In a real API route, you'd log this internally and return a clean JSON error response.
+      console.error("RapidAPI Error:", err);
+      throw err;
+    }
+  };
+  /* ===================== END API ROUTE LOGIC ===================== */
+
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim()) {
+      setError("Please enter a TikTok keyword or URL.");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setHasSearched(true);
+    setResults([]);
+
+    try {
+      // Call our simulated API route function
+      const data = await fetchTikTokData_ServerSideLogic(query, devApiKey);
+      setResults(data);
+    } catch (err: any) {
+      setError(err.message || "An unexpected error occurred.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-blue-500/30">
+      <Header />
+
+      <main className="flex-grow">
+        {/* Hero Section */}
+        <section className="pt-20 pb-16 px-4">
+          <div className="max-w-3xl mx-auto text-center space-y-6">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-sm font-medium mb-4 border border-blue-500/20">
+              <CheckCircle size={14} />
+              <span>Fast, Simple & Free</span>
+            </div>
+            
+            <h1 className="text-4xl md:text-6xl font-extrabold text-white tracking-tight leading-tight">
+              Download TikTok Videos <br/>
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300">
+                Without Hassle
+              </span>
+            </h1>
+            
+            <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto">
+              Download your favorite TikTok videos quickly with our simple downloader. Enter a keyword or paste a URL below.
+            </p>
+
+            {/* Search Box */}
+            <form onSubmit={handleSearch} className="mt-8 relative max-w-2xl mx-auto">
+              <div className="relative flex items-center bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20 transition-all">
+                <div className="pl-5 text-slate-400">
+                  <Search size={24} />
+                </div>
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Paste TikTok URL or enter keyword..."
+                  className="w-full bg-transparent border-none py-5 px-4 text-white text-lg placeholder-slate-500 focus:outline-none focus:ring-0"
+                  disabled={isLoading}
+                />
+                <div className="pr-2 hidden sm:block">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-xl font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {isLoading ? <><Loader2 size={20} className="animate-spin" /> Searching...</> : 'Search'}
+                  </button>
+                </div>
+              </div>
+              {/* Mobile Submit Button */}
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full mt-3 sm:hidden bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-xl font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg"
+              >
+                {isLoading ? <><Loader2 size={20} className="animate-spin" /> Searching...</> : 'Search Now'}
+              </button>
+            </form>
+
+            {/* Dev Settings Toggle (For testing) */}
+            <div className="mt-4 flex justify-center">
+              <button 
+                onClick={() => setShowSettings(!showSettings)}
+                className="text-xs text-slate-500 hover:text-slate-300 flex items-center gap-1 transition-colors"
+              >
+                <Settings size={12} /> {showSettings ? 'Hide API Settings' : 'Set Real API Key (Optional)'}
+              </button>
+            </div>
+
+            {/* Dev Settings Panel */}
+            {showSettings && (
+              <div className="max-w-xl mx-auto mt-4 p-4 bg-slate-900 border border-slate-700 rounded-xl text-left">
+                <div className="flex justify-between items-start mb-2">
+                  <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                    <Info size={16} className="text-blue-400" /> API Configuration
+                  </h4>
+                  <button onClick={() => setShowSettings(false)}><X size={16} className="text-slate-500 hover:text-white" /></button>
+                </div>
+                <p className="text-xs text-slate-400 mb-3">
+                  If left empty, the app uses <strong>mock data</strong> for safe previewing. Paste your RapidAPI key to test real fetches. 
+                  <em>(Note: In a real Next.js app, this key resides safely in `.env.local`).</em>
+                </p>
+                <input 
+                  type="password"
+                  value={devApiKey}
+                  onChange={(e) => setDevApiKey(e.target.value)}
+                  placeholder="Enter RAPIDAPI_KEY..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            )}
+          </div>
+        </section>
+
+        {}
+        <section className="max-w-6xl mx-auto px-4 pb-20">
+          
+          {/* Error State */}
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-start gap-3 max-w-2xl mx-auto mb-8 animate-in fade-in slide-in-from-bottom-4">
+              <AlertCircle size={24} className="shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-semibold">Error</h4>
+                <p className="text-sm opacity-90">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Loading Skeletons */}
+          {isLoading && (
+            <div className="mb-8 text-center">
+              <p className="text-blue-400 font-medium flex items-center justify-center gap-2 mb-6">
+                <Loader2 size={20} className="animate-spin" /> 
+                Fetching best results...
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="animate-pulse bg-slate-900 rounded-2xl border border-slate-800 h-96 flex flex-col">
+                    <div className="w-full h-64 bg-slate-800 rounded-t-2xl"></div>
+                    <div className="p-4 space-y-3 flex-grow">
+                      <div className="flex gap-2 items-center">
+                         <div className="w-8 h-8 rounded-full bg-slate-800"></div>
+                         <div className="h-4 bg-slate-800 rounded w-1/2"></div>
+                      </div>
+                      <div className="h-3 bg-slate-800 rounded w-full"></div>
+                      <div className="h-3 bg-slate-800 rounded w-3/4"></div>
+                      <div className="mt-auto h-10 bg-slate-800 rounded-xl w-full"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Results Grid */}
+          {!isLoading && hasSearched && results.length > 0 && (
+             <div className="animate-in fade-in slide-in-from-bottom-8 duration-500">
+               <h2 className="text-2xl font-bold text-white mb-6">Results for "{query}"</h2>
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                 {results.map((video) => (
+                   <VideoCard key={video.video_id} video={video} />
+                 ))}
+               </div>
+             </div>
+          )}
+        </section>
+
+        {}
+        {/* How It Works Section */}
+        <section id="how-it-works" className="py-20 bg-slate-900/30 border-t border-slate-800/50">
+          <div className="max-w-6xl mx-auto px-4 text-center">
+            <h2 className="text-3xl font-bold text-white mb-12">How to Download</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {[
+                { step: '1', title: 'Find Video', desc: 'Find a TikTok video you love or think of a keyword.' },
+                { step: '2', title: 'Search or Paste', desc: 'Copy the URL and paste it above, or type your keyword.' },
+                { step: '3', title: 'Download', desc: 'Choose your preferred video from the results and hit download.' }
+              ].map((item, i) => (
+                <div key={i} className="flex flex-col items-center bg-slate-900 p-8 rounded-3xl border border-slate-800">
+                  <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-xl font-bold text-white mb-6 shadow-lg shadow-blue-500/20">
+                    {item.step}
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">{item.title}</h3>
+                  <p className="text-slate-400">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ Section */}
+        <section id="faq" className="py-20 max-w-3xl mx-auto px-4">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-white mb-4">Frequently Asked Questions</h2>
+            <p className="text-slate-400">Everything you need to know about TikSave.</p>
+          </div>
+          
+          <div className="space-y-2">
+            <FAQItem 
+              question="Is TikSave free?" 
+              answer="Yes! TikSave is completely free to use for searching and downloading publicly available TikTok content." 
+            />
+            <FAQItem 
+              question="Does it work on mobile?" 
+              answer="Absolutely. TikSave is designed with a mobile-first approach, ensuring it looks and works perfectly on your iPhone, Android, or tablet." 
+            />
+            <FAQItem 
+              question="Why can't I download some videos?" 
+              answer="Some videos may be private, deleted, or restricted by the creator. Our tool can only fetch publicly available videos provided by the TikTok platform API." 
+            />
+            <FAQItem 
+              question="Do I need to install an application?" 
+              answer="No installation required! TikSave works entirely within your web browser." 
+            />
+          </div>
+        </section>
+      </main>
+
+      <Footer />
+    </div>
+  );
+}
